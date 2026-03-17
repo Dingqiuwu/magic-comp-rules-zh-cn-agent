@@ -1,6 +1,6 @@
 ---
 name: mtg-judge-zh
-description: 万智牌中文规则裁判助手。用于回答万智牌规则问题、分析牌张互动、解释关键词机制、判断游戏情境。当用户询问"裁判"、规则问题、牌张互动、关键词解释、时序判断、或任何万智牌相关疑问时触发。会基于完整规则知识库进行精确规则引用和分析。
+description: 万智牌中文规则裁判助手。用于回答万智牌规则问题、分析牌张互动、解释关键词机制、判断游戏情境。当用户询问"裁判"、规则问题、牌张互动、关键词解释、时序判断、或任何万智牌相关疑问时触发。会基于完整规则知识库进行精确规则引用和分析。涉及牌名时，先用mtgch API获取官方中文牌名，再用scryfall获取完整异能文本。
 allowed-tools: Read, Grep, Bash
 ---
 
@@ -55,31 +55,115 @@ grep -B2 -A3 "践踏" markdown/glossarycn.md
 
 ## 工作流程
 
+### 前置步骤：牌名查询（如用户问题涉及具体牌张）
+
+**当用户问题中包含具体牌名时（如「Lightning Bolt」「Counterspell」等），必须先查询牌面信息：**
+
+1. **使用 mtgch API 获取官方中文牌名**
+   ```bash
+   # 英文牌名直接查询
+   curl -s "https://mtgch.com/api/v1/autocomplete/?q=Lightning+Bolt&is_for_deck=false&size=1&page=1" \
+     -H "accept: application/json" | head -c 5000
+
+   # 中文牌名需要 URL 编码（使用 -G 和 --data-urlencode）
+   curl -s -G "https://mtgch.com/api/v1/autocomplete/" \
+     --data-urlencode "q=闪电击" \
+     -d "is_for_deck=false" \
+     -d "size=1" \
+     -d "page=1" \
+     -H "accept: application/json" | head -c 5000
+   ```
+   提取字段：`display_name`（中文牌名）、`atomic_translated_type`（中文类别）
+
+2. **使用 Scryfall API 获取完整异能文本**
+   ```bash
+   curl -s "https://api.scryfall.com/cards/named?fuzzy={牌名}" 2>/dev/null | head -c 5000
+   ```
+   提取字段：`oracle_text`（异能文本）、`mana_cost`、`type_line`
+
+3. **结合两者信息回答**
+   - 使用 mtgch 的官方中文牌名（如「闪电击」）
+   - 使用 Scryfall 的完整异能文本
+   - 用中文规则术语解释牌张互动
+
 ### 规则问题回答流程
 
 1. **理解问题** - 明确用户询问的游戏情境
-2. **查询未知卡牌** - 如果用户提到不熟悉的牌，先用 mtgch API 查询卡牌效果
+2. **查询未知卡牌** - 如果用户提到不熟悉的牌，按前置步骤查询卡牌效果
 3. **定位规则** - 使用 Grep/Read 查找相关规则
 4. **引用原文** - 提供准确规则条文（中英文对照）
 5. **分析应用** - 解释规则如何应用于该情境
 6. **给出结论** - 明确回答最终结果
 
-### 未知卡牌查询方法
+### 牌名查询 API 参考
 
-当遇到不熟悉的卡牌时，使用 mtgch API 查询：
+#### mtgch API（获取中文牌名）
 
 ```bash
-# 搜索卡牌
-GET https://mtgch.com/api/v1/result?q={牌名}
+# 模糊搜索英文牌名
+curl -s "https://mtgch.com/api/v1/autocomplete/?q=Lightning+Bolt&is_for_deck=false&size=1&page=1" \
+  -H "accept: application/json" | head -c 5000
 
-# 示例：查询反对派密探
-curl "https://mtgch.com/api/v1/result?q=反对派密探"
+# 搜索中文牌名（需要 URL 编码）
+curl -s -G "https://mtgch.com/api/v1/autocomplete/" \
+  --data-urlencode "q=闪电击" \
+  -d "is_for_deck=false" \
+  -d "size=1" \
+  -d "page=1" \
+  -H "accept: application/json" | head -c 5000
+
+# 或者手动编码中文（闪电击 = %E9%97%AA%E7%94%B5%E5%87%BB）
+curl -s "https://mtgch.com/api/v1/autocomplete/?q=%E9%97%AA%E7%94%B5%E5%87%BB&is_for_deck=false&size=1&page=1" \
+  -H "accept: application/json" | head -c 5000
 ```
 
-**常用端点**：
-- `/api/v1/result?q={牌名}` - 按名称搜索卡牌
-- `/api/v1/card/{set}/{collector_number}/` - 按系列和编号查询
-- `/api/v1/autocomplete/?q={部分名称}` - 自动补全
+**响应字段说明**:
+- `name`: 英文牌名
+- `display_name`: **中文牌名**（官方中文翻译）
+- `atomic_translated_type`: **中文类别**（如 "瞬间"、"生物"）
+- `mana_cost`: 法术力费用（HTML格式）
+- `set`: 系列代码
+- `rarity`: 稀有度
+
+#### Scryfall API（获取完整异能文本）
+
+```bash
+# 模糊搜索
+curl -s "https://api.scryfall.com/cards/named?fuzzy=Lightning+Bolt" 2>/dev/null | head -c 5000
+
+# 精确搜索
+curl -s "https://api.scryfall.com/cards/search?q=!\"Lightning+Bolt\"" 2>/dev/null | head -c 5000
+```
+
+**响应字段说明**:
+- `name`: 英文牌名
+- `printed_name`: 中文印刷牌名
+- `mana_cost`: 法术力费用（如 "{R}"）
+- `type_line`: 类别
+- `oracle_text`: 官方异能文本
+- `printed_text`: 中文印刷异能文本
+
+#### 查询工作流程
+
+**当用户问题中包含牌名时，执行以下步骤：**
+
+1. **使用 mtgch API 获取中文牌名和类别**
+   ```bash
+   curl -s "https://mtgch.com/api/v1/autocomplete/?q={牌名}&is_for_deck=false&size=1&page=1" \
+     -H "accept: application/json" | head -c 5000
+   ```
+   提取：`display_name`（中文名）、`atomic_translated_type`（中文类别）
+
+2. **使用 Scryfall API 获取完整异能文本**
+   ```bash
+   curl -s "https://api.scryfall.com/cards/named?fuzzy={牌名}" 2>/dev/null | head -c 5000
+   ```
+   提取：`oracle_text`（异能文本）、`mana_cost`、`type_line`
+
+3. **结合两者信息回答规则问题**
+   - 使用 mtgch 的官方中文牌名
+   - 使用 Scryfall 的完整异能文本
+   - 用中文规则术语解释牌张互动
 
 ### 复杂互动分析流程
 
@@ -91,6 +175,14 @@ curl "https://mtgch.com/api/v1/result?q=反对派密探"
    - **613.6 跨层效应**：同一异能的多部分在不同层生效，即使异能消失，已生效的部分保留
    - **613.8 从属关系**：仅当效应在同一层（或副层）时才存在
 6. **逐步推演结果**
+
+## 参考资源
+
+| 资源 | 用途 | 链接 |
+|------|------|------|
+| **mtgch** | 中文卡牌查询 | https://mtgch.com/api/v1/result?q={牌名} |
+| **Scryfall** | 英文卡牌查询（备用） | https://api.scryfall.com/cards/named?fuzzy={牌名} |
+| **RulesGuru** | 规则问答学习（1486+题目） | https://rulesguru.org/ |
 
 ## 关键规则参考
 
