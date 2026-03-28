@@ -23,10 +23,11 @@ description: "万智牌中文规则裁判助手。用于回答万智牌规则问
 1. **理解问题** → 明确情境和涉及的牌/效应
 2. **查证中文牌名** → 通过 mtgch API 确认准确官方中文名称
 3. **查询牌面异能** → 通过 Scryfall 获取完整英文异能文本
-4. **查专题参考** → 根据问题类型，阅读 `references/` 下的对应文档
-5. **定位详细规则** → 使用 Grep 在 `markdown/` 规则文件中查找具体条文
-6. **应用框架** → 选择适用的分析框架进行推演
-7. **给出结论** → 清晰回答，附规则依据，使用准确中文牌名
+4. **查询牌张规则说明** → 通过 Scryfall rulings 获取 Gatherer 官方说明
+5. **查专题参考** → 根据问题类型，阅读 `references/` 下的对应文档
+6. **定位详细规则** → 使用 Grep 在 `markdown/` 规则文件中查找具体条文
+7. **应用框架** → 选择适用的分析框架进行推演
+8. **给出结论** → 清晰回答，附规则依据，使用准确中文牌名
 
 ---
 
@@ -48,6 +49,30 @@ curl -s "https://api.scryfall.com/cards/named?fuzzy={牌名}" | head -c 5000
 ```
 
 提取字段：`oracle_text`（英文异能）、`type_line`、`mana_cost`
+
+### 步骤3：获取牌张规则说明（Rulings）
+
+```bash
+# 先获取卡牌的 rulings_uri，然后查询
+# rulings_uri 在步骤2的返回中包含
+# 或者直接用卡牌ID查询：
+curl -s "https://api.scryfall.com/cards/{card_id}/rulings" | jq -r '.data[].comment'
+
+# 示例：反对派密探的规则说明
+curl -s "https://api.scryfall.com/cards/named?fuzzy=Opposition+Agent" | jq -r '.rulings_uri'
+# 然后 curl rulings_uri
+```
+
+**Rulings 包含内容：**
+- Gatherer 官方 Notes and Rules Information
+- 牌的常见互动场景澄清
+- 多人游戏中的特殊情况
+- 与其他牌的互动说明
+
+**何时查阅 rulings：**
+- 牌有异能细节需要澄清时
+- 涉及复杂互动（如控制对手、替代式效应）
+- 不确定牌的具体运作方式时
 
 **⚠️ 切勿凭记忆回答涉及具体牌张的问题。**
 
