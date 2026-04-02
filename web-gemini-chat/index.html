@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#f6f1e6" />
+  <title>Gemini AI 交互控制台</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@400;500;700;800&family=Noto+Serif+SC:wght@400;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <a class="skip-link" href="#mainContent">跳到主内容</a>
+  <div class="bg-orb orb-a" aria-hidden="true"></div>
+  <div class="bg-orb orb-b" aria-hidden="true"></div>
+  <div class="grain" aria-hidden="true"></div>
+  <div class="sound-corner" aria-label="提示音开关">
+    <label for="completionSound" class="sound-toggle" title="AI 回复完成后播放提示音">
+      <svg class="sound-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path d="M4 10h4l5-4v12l-5-4H4z"></path>
+        <path d="M16 9.5a4 4 0 0 1 0 5"></path>
+        <path d="M18.5 7a7 7 0 0 1 0 10"></path>
+      </svg>
+      <input id="completionSound" name="completionSound" type="checkbox" checked />
+      <span class="sr-only">AI 回复完成后播放提示音</span>
+    </label>
+  </div>
+
+  <header class="topbar">
+    <div class="topbar-mark">TACTICAL JUDGE MODE</div>
+    <h1>Gemini AI 交互控制台</h1>
+    <p>面向规则问答与知识检索的前端对话页</p>
+    <div class="topbar-meta" aria-hidden="true">
+      <span>Structured Context</span>
+      <span>Card Verification</span>
+      <span>Chinese Rules Ready</span>
+    </div>
+  </header>
+
+  <main id="mainContent" class="layout" tabindex="-1">
+    <aside class="panel">
+      <details class="card card-accordion" open>
+        <summary><span>连接配置</span><small>API、模型与输出长度</small></summary>
+        <div class="card-body">
+          <label for="apiKey">Gemini API Key</label>
+          <input id="apiKey" name="apiKey" type="password" placeholder="粘贴 API Key（仅保存在本地浏览器）" autocomplete="off" />
+          <p class="helper-text">API Key 只保存在当前浏览器。若切换设备或清理缓存，需要重新填写。</p>
+
+          <label for="model">模型</label>
+          <input id="model" name="model" type="text" list="modelOptions" placeholder="输入或选择模型，例如 gemini-2.5-pro…" autocomplete="off" />
+          <datalist id="modelOptions">
+            <option value="gemini-2.0-flash"></option>
+            <option value="gemini-2.5-flash"></option>
+            <option value="gemini-2.5-pro"></option>
+          </datalist>
+
+          <label for="temperature">温度 <span id="temperatureValue">0.7</span></label>
+          <input id="temperature" name="temperature" type="range" min="0" max="2" step="0.1" value="0.7" />
+
+          <label for="maxTokens">最大输出 token</label>
+          <input id="maxTokens" name="maxTokens" type="number" min="128" max="8192" step="1" value="2048" autocomplete="off" inputmode="numeric" />
+        </div>
+      </details>
+
+      <details class="card card-accordion card-emphasis" open>
+        <summary><span>单卡强制查询</span><small>Scryfall 与 MTGCH 预取</small></summary>
+        <div class="card-body">
+          <label for="cardName">卡牌名称（多卡用 | 分隔）</label>
+          <input id="cardName" name="cardName" type="text" placeholder="例如：反对派密探 | 腥红之月 | 乌尔博格，亚格斯之墓…" autocomplete="off" />
+
+          <label class="toggle-line" for="forceCardLookup">
+            <input id="forceCardLookup" name="forceCardLookup" type="checkbox" checked />
+            <span>涉及单卡时，发送前必须先查 Scryfall 和 MTGCH API</span>
+          </label>
+
+          <p class="helper-text">开启后，前端会先请求 Scryfall 与 MTGCH，再把结果注入给 Gemini。支持多卡：在输入框中使用 | 分隔卡名。未手动填写时，系统会尝试从问题中自动识别一个或多个卡名。</p>
+        </div>
+      </details>
+
+      <details class="card card-accordion">
+        <summary><span>系统提示词</span><small>回答风格与约束</small></summary>
+        <div class="card-body">
+          <textarea id="systemPrompt" name="systemPrompt" rows="7" placeholder="例如：你是万智牌规则助手，回答时请给出规则号并分步骤推理…" autocomplete="off"></textarea>
+        </div>
+      </details>
+
+    </aside>
+
+    <section class="chat-shell">
+      <section class="workspace-bar" aria-label="当前工作状态">
+        <div class="workspace-pill">
+          <span class="workspace-label">模型</span>
+          <strong id="activeModel">gemini-2.0-flash</strong>
+        </div>
+        <div class="workspace-pill">
+          <span class="workspace-label">单卡查询</span>
+          <strong id="lookupState">已开启</strong>
+        </div>
+        <div class="workspace-pill">
+          <span class="workspace-label">规则文件</span>
+          <strong id="ruleFetchState">等待检查</strong>
+        </div>
+      </section>
+
+      <section class="studio-actions" aria-label="核心快捷操作">
+        <button id="insertPromptBtn" type="button">插入规则助手模板</button>
+        <button id="clearChatBtn" type="button" class="danger">清空对话</button>
+      </section>
+
+      <section class="chat-toolbar" aria-label="聊天检索工具">
+        <label for="chatSearch" class="sr-only">搜索聊天记录</label>
+        <input id="chatSearch" name="chatSearch" type="search" placeholder="搜索聊天记录，例如 613.1、替代效应、密探…" autocomplete="off" />
+        <label class="toggle-line toggle-compact chat-filter" for="favoritesOnlyFilter">
+          <input id="favoritesOnlyFilter" name="favoritesOnlyFilter" type="checkbox" />
+          <span>只看收藏</span>
+        </label>
+        <label class="toggle-line toggle-compact chat-filter" for="ruleOnlyFilter">
+          <input id="ruleOnlyFilter" name="ruleOnlyFilter" type="checkbox" />
+          <span>只看含规则号的回复</span>
+        </label>
+        <button id="clearSearchBtn" type="button" class="ghost-btn">清空筛选</button>
+        <span id="chatSearchMeta" class="chat-search-meta">显示全部消息</span>
+      </section>
+
+      <div id="chatList" class="chat-list" aria-live="polite"></div>
+
+      <form id="chatForm" class="composer">
+        <label for="userInput" class="sr-only">输入问题</label>
+        <textarea id="userInput" name="userInput" rows="3" placeholder="输入你的问题，Enter 发送，Shift+Enter 换行…" autocomplete="off" aria-describedby="composerHint"></textarea>
+        <p id="composerHint" class="composer-tip">Enter 发送，Shift+Enter 换行；回答里出现规则号后，右侧会显示对应原文。</p>
+        <div class="composer-actions">
+          <span id="status" class="status" role="status" aria-live="polite">未连接请求</span>
+          <button id="stopBtn" type="button" class="stop-btn" hidden>停止生成</button>
+          <button id="retryBtn" type="button" class="ghost-btn" hidden>重试失败发送</button>
+          <button id="sendBtn" type="submit">发送</button>
+        </div>
+
+        <div class="prompt-suggestions" aria-label="常用问题模板">
+          <button type="button" class="prompt-chip" data-prompt="解释替代效应与进入战场异能同时存在时的处理顺序，并引用相关规则号。">替代效应判定</button>
+          <button type="button" class="prompt-chip" data-prompt="查询反对派密探与放逐区咒语互动的规则依据，并分别列出结论与规则号。">单卡互动裁定</button>
+          <button type="button" class="prompt-chip" data-prompt="比较状态动作、触发式异能与优先权的时序，给出步骤化说明。">时序问题拆解</button>
+        </div>
+      </form>
+    </section>
+
+    <aside class="evidence-shell" aria-live="polite">
+      <section class="card evidence-card">
+        <h2>规则引用原文</h2>
+        <p id="ruleEvidenceMeta" class="helper-text">等待 AI 回复并识别规则号…</p>
+        <div id="ruleEvidenceList" class="evidence-list"></div>
+        <p class="helper-text evidence-footnote">原文来自仓库内 markdown 规则文件。若服务支持锚点，可直接跳转到对应条文。</p>
+      </section>
+    </aside>
+  </main>
+
+  <template id="msgTpl">
+    <article class="msg">
+      <header class="msg-head">
+        <span class="role"></span>
+        <time class="time"></time>
+      </header>
+      <div class="msg-body"></div>
+    </article>
+  </template>
+
+  <script src="./app.js"></script>
+</body>
+</html>
