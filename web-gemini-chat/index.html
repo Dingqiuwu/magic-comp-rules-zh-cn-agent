@@ -67,14 +67,15 @@
         <summary><span>单卡强制查询</span><small>Scryfall 与 MTGCH 预取</small></summary>
         <div class="card-body">
           <label for="cardName">卡牌名称（多卡用 | 分隔）</label>
-          <input id="cardName" name="cardName" type="text" placeholder="例如：反对派密探 | 腥红之月 | 乌尔博格，亚格斯之墓…" autocomplete="off" />
+          <input id="cardName" name="cardName" type="text" list="cardSuggestions" placeholder="例如：反对派密探 | Scute Swarm | 乌尔博格，亚格斯之墓…" autocomplete="off" />
+          <datalist id="cardSuggestions"></datalist>
 
           <label class="toggle-line" for="forceCardLookup">
             <input id="forceCardLookup" name="forceCardLookup" type="checkbox" checked />
             <span>涉及单卡时，发送前必须先查 Scryfall 和 MTGCH API</span>
           </label>
 
-          <p class="helper-text">开启后，前端会先请求 Scryfall 与 MTGCH，再把结果注入给 Gemini。支持多卡：在输入框中使用 | 分隔卡名。未手动填写时，系统会尝试从问题中自动识别一个或多个卡名。</p>
+          <p class="helper-text">开启后，前端会先请求 Scryfall 与 MTGCH，再把结果注入给 Gemini。支持多卡：用 | 分隔卡名。<br>也可在消息中直接用 <code>[[卡牌名]]</code> 标记（如 <code>[[反对派密探]]</code>），系统会自动识别并查询。</p>
         </div>
       </details>
 
@@ -127,8 +128,8 @@
 
       <form id="chatForm" class="composer">
         <label for="userInput" class="sr-only">输入问题</label>
-        <textarea id="userInput" name="userInput" rows="3" placeholder="输入你的问题，Enter 发送，Shift+Enter 换行…" autocomplete="off" aria-describedby="composerHint"></textarea>
-        <p id="composerHint" class="composer-tip">Enter 发送，Shift+Enter 换行；回答里出现规则号后，右侧会显示对应原文。</p>
+        <textarea id="userInput" name="userInput" rows="3" placeholder="输入问题，用 [[卡牌名]] 标记单卡，Enter 发送，Shift+Enter 换行…" autocomplete="off" aria-describedby="composerHint"></textarea>
+        <p id="composerHint" class="composer-tip">Enter 发送，Shift+Enter 换行。用 <kbd>[[卡牌名]]</kbd> 精确指定单卡查询，例如 <em>[[反对派密探]]</em>。回答出现规则号后，右侧显示原文。</p>
         <div class="composer-actions">
           <span id="status" class="status" role="status" aria-live="polite">未连接请求</span>
           <button id="stopBtn" type="button" class="stop-btn" hidden>停止生成</button>

@@ -50,6 +50,8 @@ let activeLoadingBubble = null;
 let ruleFetchStatus = "unknown";
 let chatFilterEmptyNode = null;
 let lastFailedUserText = "";
+const cardAutocompleteCache = new Map();
+let cardAutocompleteTimer = null;
 const ruleFileCache = new Map();
 
 function getModelValue() {
@@ -688,41 +690,116 @@ function maybeAutofillCardNamesFromInput() {
 }
 
 function detectCardCandidatesFromText(text) {
+  const seen = new Set();
   const candidates = [];
 
   const pushCandidate = (value) => {
     const cleaned = normalizeCardCandidate(value || "");
-    if (cleaned.length < 2 || cleaned.length > 64) {
-      return;
-    }
+    if (cleaned.length < 2 || cleaned.length > 64) return;
+    const key = cleaned.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
     candidates.push(cleaned);
   };
 
-  const wrappedPatterns = [
-    /《([^》]{2,64})》/g,
-    /「([^」]{2,64})」/g,
-    /“([^”]{2,64})”/g,
-    /"([^"\n]{2,64})"/g,
-    /\[([^\]\n]{2,64})\]/g
-  ];
-
-  wrappedPatterns.forEach((pattern) => {
-    for (const match of text.matchAll(pattern)) {
-      pushCandidate(match[1]);
-    }
-  });
-
-  const cuePattern = /(?:卡牌|单卡|牌名|这张牌|此牌|名为|叫做|查询|检索|搜|关于)\s*[:：]?\s*([A-Za-z][A-Za-z' -]{1,48}|[\u4e00-\u9fa5·]{2,24})/g;
-  for (const match of text.matchAll(cuePattern)) {
+  // 优先级 1：[[卡牌名]] — MTG 社区标准语法，零歧义
+  for (const match of text.matchAll(/\[\[([^\]]{2,64})\]\]/g)) {
     pushCandidate(match[1]);
   }
 
-  const compact = text.trim();
-  if (compact.length >= 2 && compact.length <= 24 && /^[\u4e00-\u9fa5·A-Za-z' -]+$/.test(compact)) {
-    pushCandidate(compact);
+  // 优先级 2：中文书名号与全角引号
+  const wrappedPatterns = [
+    /《([^》]{2,64})》/g,
+    /「([^」]{2,64})」/g,
+    /\u201c([^\u201d\n]{2,64})\u201d/g,
+    /"([^"\n]{2,64})"/g
+  ];
+  wrappedPatterns.forEach((pattern) => {
+    for (const match of text.matchAll(pattern)) pushCandidate(match[1]);
+  });
+
+  // 优先级 3：线索词（可靠性较低，作为兜底）
+  const cuePattern = /(?:卡牌|单卡|牌名|名为|叫做)\s*[:：]?\s*([A-Za-z][A-Za-z' -]{1,48}|[\u4e00-\u9fa5·]{2,24})/g;
+  for (const match of text.matchAll(cuePattern)) pushCandidate(match[1]);
+
+  // 优先级 4：全输入即卡名（仅当以上均无结果，且输入极短时）
+  if (candidates.length === 0) {
+    const compact = text.trim();
+    if (compact.length >= 2 && compact.length <= 24 && /^[\u4e00-\u9fa5·A-Za-z' -]+$/.test(compact)) {
+      pushCandidate(compact);
+    }
   }
 
-  return [...new Set(candidates)];
+  return candidates;
+}
+
+async function fetchScryfallAutocomplete(query) {
+  const key = `sf:${query.toLowerCase()}`;
+  if (cardAutocompleteCache.has(key)) return cardAutocompleteCache.get(key);
+  try {
+    const res = await fetch(`https://api.scryfall.com/cards/autocomplete?q=${encodeURIComponent(query)}`);
+    if (!res.ok) return [];
+    const data = await res.json();
+    const names = (data.data || []).slice(0, 12);
+    cardAutocompleteCache.set(key, names);
+    return names;
+  } catch {
+    return [];
+  }
+}
+
+async function fetchMtgchAutocomplete(query) {
+  const key = `mtgch:${query.toLowerCase()}`;
+  if (cardAutocompleteCache.has(key)) return cardAutocompleteCache.get(key);
+  try {
+    const res = await fetch(`https://mtgch.com/api/v1/result?q=${encodeURIComponent(query)}&page_size=12`);
+    if (!res.ok) return [];
+    const data = await res.json();
+    const items = data.items || [];
+    const seen = new Set();
+    const names = [];
+    for (const item of items) {
+      // 优先使用官方中文名，其次 zhs_name，再次英文名
+      const zhName = item.atomic_official_name || item.zhs_name || item.atomic_translated_name;
+      const candidate = zhName || item.name;
+      if (candidate && !seen.has(candidate)) {
+        seen.add(candidate);
+        names.push(candidate);
+      }
+    }
+    cardAutocompleteCache.set(key, names);
+    return names;
+  } catch {
+    return [];
+  }
+}
+
+async function fetchCardAutocomplete(query) {
+  if (query.length < 2) return [];
+  // 含中文字符 → MTGCH（支持中文卡名），否则 → Scryfall（英文卡名）
+  const hasChinese = /[\u4e00-\u9fa5]/.test(query);
+  return hasChinese ? fetchMtgchAutocomplete(query) : fetchScryfallAutocomplete(query);
+}
+
+function updateCardNameDatalist(names) {
+  const datalist = document.getElementById("cardSuggestions");
+  if (!datalist) return;
+  datalist.innerHTML = names
+    .map((n) => `<option value="${n.replace(/"/g, "&quot;")}"></option>`)
+    .join("");
+}
+
+function triggerCardNameAutocomplete() {
+  const query = el.cardName.value.trim();
+  clearTimeout(cardAutocompleteTimer);
+  if (query.length < 2) {
+    updateCardNameDatalist([]);
+    return;
+  }
+  cardAutocompleteTimer = setTimeout(async () => {
+    const names = await fetchCardAutocomplete(query);
+    updateCardNameDatalist(names);
+  }, 280);
 }
 
 function formatScryfallCard(data) {
@@ -1255,6 +1332,7 @@ function bindEvents() {
   el.cardName.addEventListener("input", () => {
     autoFilledCardName = "";
     saveSettings();
+    triggerCardNameAutocomplete();
   });
   el.forceCardLookup.addEventListener("change", () => {
     saveSettings();
