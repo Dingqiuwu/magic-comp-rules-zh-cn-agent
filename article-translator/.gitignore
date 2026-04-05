@@ -1,0 +1,5 @@
+# 翻译成果文件夹 - 不被git管理
+# 只保留 articles/ 目录下的文件不被跟踪
+# 其他代码文件 (mtg_translator.py, README.md 等) 正常上传
+
+articles/
