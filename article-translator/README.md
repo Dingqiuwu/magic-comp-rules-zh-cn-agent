@@ -2,12 +2,6 @@
 
 翻译万智牌套牌指南(primer)和攻略文章。
 
-## 功能
-
-- 自动查证牌名（mtgch API）
-- 术语标准化（规则库对照）
-- Markdown 输出（含牌名/术语对照表）
-
 ## 用法
 
 ```bash
@@ -17,11 +11,11 @@ python3 mtg_translator.py translate-manual "标题" "作者" "来源URL"
 
 翻译后的文档保存到 `articles/` 目录。
 
-## 示例
+## 功能
 
-```bash
-python3 mtg_translator.py translate-manual "Ulalek Primer" "Bingy" "https://moxfield.com/..."
-```
+- 自动查证牌名（mtgch API）
+- 术语标准化（规则库对照）
+- Markdown 输出（含牌名/术语对照表）
 
 ## 说明
 
