@@ -268,22 +268,52 @@ grep -n "span id=cr702" markdown/7.md | grep 践踏
 
 ---
 
-## 文章翻译
+## 内容翻译工作流程
 
-使用 `article-translator/mtg_translator.py` 翻译套牌指南。
+当用户需要翻译万智牌相关文章、套牌指南(primer)或攻略时，遵循以下专业翻译流程：
 
-### 用法
+### 翻译标准
 
-```bash
-python3 article-translator/mtg_translator.py translate-manual "标题" "作者" "URL"
-# 粘贴文章内容，输入 EOF
+1. **牌名处理**
+   - 必须通过 mtgch API 查证官方中文译名
+   - 格式: `中文译名 (英文原名)`
+   - 示例: 残暴合体钨拉雷 (Ulalek, Fused Atrocity)
+
+2. **术语标准化**
+   - 关键字异能: 使用规则库标准译名 (死触、践踏、敏捷等)
+   - 赛制名称: 指挥官/主将、标准、摩登、薪传、特选等
+   - 机制术语: 堆叠、优先权、触发式异能、启动式异能等
+
+3. **输出格式**
+   - Markdown 文档
+   - 包含牌名对照表
+   - 包含术语对照表
+   - 注明原文来源和翻译时间
+
+### 翻译流程
+
+```
+1. 接收内容 → 用户提供文章或链接
+2. 分析文本 → 提取所有疑似牌名和术语
+3. 查证牌名 → 调用 mtgch API 获取官方译名
+4. 术语对照 → 查询规则库确认译名
+5. 专业翻译 → 保持结构，使用规范译名
+6. 生成文档 → Markdown 格式，包含对照表
 ```
 
-### 输出
+### 牌名查证方法
 
-- Markdown 格式
-- 牌名对照表（mtgch API 查证）
-- 术语对照表
+```bash
+# 查询单张牌的官方中文译名
+curl -s "https://mtgch.com/api/v1/autocomplete/?q=牌名英文&size=1" \
+  -H "accept: application/json" | jq -r '.items[0].display_name'
+```
+
+### 翻译示例
+
+**原文**: "Ulalek is a competitive 'six color' midrange commander deck..."
+
+**译文**: "残暴合体钨拉雷 (Ulalek) 是一套竞技型『六色』中速主将套牌..."
 
 ---
 
