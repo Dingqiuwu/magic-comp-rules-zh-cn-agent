@@ -6,3 +6,6 @@ __pycache__/
 /.vscode/
 /.claude/
 /.DS_Store/
+/.playwright-cli/
+# 测试文件夹 - 文章翻译工具测试用
+/article-translator/articles/
