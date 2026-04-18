@@ -1,6 +1,8 @@
 const el = {
+  baseUrl: document.getElementById("baseUrl"),
   apiKey: document.getElementById("apiKey"),
   model: document.getElementById("model"),
+  fetchModelsBtn: document.getElementById("fetchModelsBtn"),
   temperature: document.getElementById("temperature"),
   temperatureValue: document.getElementById("temperatureValue"),
   maxTokens: document.getElementById("maxTokens"),
@@ -55,7 +57,7 @@ let cardAutocompleteTimer = null;
 const ruleFileCache = new Map();
 
 function getModelValue() {
-  return el.model.value.trim() || "gemini-2.0-flash";
+  return el.model.value.trim() || "";
 }
 
 function setRuleFetchStatus(nextStatus) {
@@ -80,7 +82,7 @@ function getRuleFetchLabel() {
 }
 
 function updateWorkspaceIndicators() {
-  el.activeModel.textContent = getModelValue();
+  el.activeModel.textContent = getModelValue() || "—";
   el.lookupState.textContent = el.forceCardLookup.checked ? "已开启" : "已关闭";
   el.ruleFetchState.textContent = getRuleFetchLabel();
 }
@@ -303,7 +305,7 @@ function ruleRefToBookmark(ruleRef) {
 }
 
 function buildRuleSourceHref(ruleFileNo, ruleRef) {
-  return `../markdown/${ruleFileNo}.md#cr${ruleRefToBookmark(ruleRef)}`;
+  return `https://mtgch.com/cr/${ruleFileNo}/#cr${ruleRefToBookmark(ruleRef)}`;
 }
 
 async function fetchRuleFile(ruleFileNo) {
@@ -369,7 +371,8 @@ function extractRuleSnippet(fileText, ruleRef) {
   const start = Math.max(0, targetIndex);
   const end = Math.min(lines.length, targetIndex + 8);
   const raw = lines.slice(start, end).join("\n").trim();
-  return raw || "未提取到可显示内容。";
+  const clean = raw.replace(/<[^>]*>/g, "").trim();
+  return clean || "未提取到可显示内容。";
 }
 
 function renderEvidenceLoading(refs) {
@@ -410,9 +413,8 @@ function renderEvidenceItems(items) {
               <article class="evidence-item">
                 <header class="evidence-head">
                   <span class="evidence-rule">CR ${item.ruleRef}</span>
-                  <span class="evidence-file">markdown/${item.ruleFile}.md</span>
+                  <a class="evidence-file evidence-ext-link" href="${escapeAttribute(item.href || "#")}" target="_blank" rel="noreferrer">mtgch.com/cr/${item.ruleFile}</a>
                 </header>
-                <a class="evidence-source" href="${escapeAttribute(item.href || "#")}" target="_blank" rel="noreferrer">查看原文锚点</a>
                 <pre class="evidence-quote">${escapeHtml(item.snippet)}</pre>
               </article>
             `)
@@ -447,7 +449,7 @@ async function updateRuleEvidencePanel(answerText) {
       const snippet = extractRuleSnippet(fileText, ruleRef);
       items.push({ ruleRef, ruleFile, snippet, href: buildRuleSourceHref(ruleFile, ruleRef) });
     } catch (err) {
-      items.push({ ruleRef, ruleFile, snippet: `读取失败: ${err.message || "未知错误"}` , href: buildRuleSourceHref(ruleFile, ruleRef) });
+      items.push({ ruleRef, ruleFile, snippet: `读取失败: ${err.message || "未知错误"}`, href: buildRuleSourceHref(ruleFile, ruleRef) });
     }
   }
 
@@ -1055,7 +1057,7 @@ async function regenerateAssistantMessage(index) {
 
   try {
     const externalContext = await buildExternalCardContext(prompt);
-    const answer = await callGemini(externalContext, activeRequestController.signal);
+    const answer = await callAPI(externalContext, activeRequestController.signal);
     updateAssistantMessageAt(index, answer);
     playCompletionSound();
     endGenerationUI("重生成完成", "");
@@ -1073,6 +1075,7 @@ async function regenerateAssistantMessage(index) {
 
 function saveSettings() {
   const payload = {
+    baseUrl: el.baseUrl.value.trim(),
     apiKey: el.apiKey.value.trim(),
     model: getModelValue(),
     temperature: el.temperature.value,
@@ -1094,8 +1097,9 @@ function loadSettings() {
 
   try {
     const data = JSON.parse(raw);
+    el.baseUrl.value = data.baseUrl || "";
     el.apiKey.value = data.apiKey || "";
-    el.model.value = data.model || "gemini-2.0-flash";
+    el.model.value = data.model || "";
     el.temperature.value = data.temperature || "0.7";
     el.maxTokens.value = data.maxTokens || "2048";
     el.cardName.value = data.cardName || "";
@@ -1114,7 +1118,7 @@ function saveMessages() {
 function loadMessages() {
   const raw = localStorage.getItem(MSG_KEY);
   if (!raw) {
-    addMessage("system", "欢迎使用 Gemini AI 交互控制台。先填写 API Key，再输入问题开始对话。", false);
+    addMessage("system", "欢迎使用 AI 规则助手。请先填写 API 基础 URL 和 Key，获取模型列表后选择模型，再开始对话。", false);
     return;
   }
 
@@ -1139,7 +1143,7 @@ function addMessage(role, content, save = true, time = nowTime(), isoTime = new 
 
   const roleMap = {
     user: "你",
-    assistant: "Gemini",
+    assistant: "AI",
     system: "系统"
   };
 
@@ -1194,46 +1198,50 @@ function resetChat() {
   applyChatFilters();
 }
 
-function buildGeminiContents(externalContext = "") {
-  const contents = messages
-    .filter((m) => m.role === "user" || m.role === "assistant")
-    .map((m) => ({
-      role: m.role === "assistant" ? "model" : "user",
-      parts: [{ text: m.content }]
-    }));
-
-  if (externalContext) {
-    contents.push({
-      role: "user",
-      parts: [{ text: externalContext }]
-    });
-  }
-
-  return contents;
+function getBaseUrl() {
+  return el.baseUrl.value.trim().replace(/\/+$/, "");
 }
 
-async function callGemini(externalContext = "", signal) {
-  const apiKey = el.apiKey.value.trim();
-  if (!apiKey) {
-    throw new Error("请先填写 Gemini API Key");
+function buildMessages(externalContext = "") {
+  const msgs = [];
+
+  const sysPrompt = el.systemPrompt.value.trim() || "你是一个有帮助的 AI 助手。";
+  msgs.push({ role: "system", content: sysPrompt });
+
+  messages
+    .filter((m) => m.role === "user" || m.role === "assistant")
+    .forEach((m) => msgs.push({ role: m.role, content: m.content }));
+
+  if (externalContext) {
+    msgs.push({ role: "user", content: externalContext });
   }
 
+  return msgs;
+}
+
+async function callAPI(externalContext = "", signal) {
+  const apiKey = el.apiKey.value.trim();
+  const baseUrl = getBaseUrl();
   const model = getModelValue();
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+
+  if (!baseUrl) throw new Error("请先填写 API 基础 URL");
+  if (!apiKey)  throw new Error("请先填写 API Key");
+  if (!model)   throw new Error("请先选择或填写模型名称");
+
+  const url = `${baseUrl}/chat/completions`;
 
   const response = await fetch(url, {
     method: "POST",
     signal,
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${apiKey}`
+    },
     body: JSON.stringify({
-      systemInstruction: {
-        parts: [{ text: el.systemPrompt.value.trim() || "你是一个有帮助的 AI 助手。" }]
-      },
-      contents: buildGeminiContents(externalContext),
-      generationConfig: {
-        temperature: Number(el.temperature.value),
-        maxOutputTokens: Number(el.maxTokens.value)
-      }
+      model,
+      messages: buildMessages(externalContext),
+      temperature: Number(el.temperature.value),
+      max_tokens: Number(el.maxTokens.value)
     })
   });
 
@@ -1244,17 +1252,60 @@ async function callGemini(externalContext = "", signal) {
     throw new Error(msg);
   }
 
-  const parts = data?.candidates?.[0]?.content?.parts || [];
-  const text = parts
-    .map((p) => p.text)
-    .filter(Boolean)
-    .join("\n");
+  const text = data?.choices?.[0]?.message?.content?.trim();
 
   if (!text) {
-    throw new Error("Gemini 没有返回可读文本，请重试。\n可能是触发了安全策略或返回了非文本内容。");
+    throw new Error("API 没有返回可读文本，请重试。");
   }
 
   return text;
+}
+
+async function fetchModels() {
+  const baseUrl = getBaseUrl();
+  const apiKey = el.apiKey.value.trim();
+
+  if (!baseUrl) { setStatus("请先填写 API 基础 URL", "error"); return; }
+  if (!apiKey)  { setStatus("请先填写 API Key", "error"); return; }
+
+  el.fetchModelsBtn.disabled = true;
+  el.fetchModelsBtn.textContent = "获取中…";
+
+  try {
+    const response = await fetch(`${baseUrl}/models`, {
+      headers: { "Authorization": `Bearer ${apiKey}` }
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data?.error?.message || `HTTP ${response.status}`);
+    }
+
+    const modelIds = (data?.data || [])
+      .map((m) => m.id || m.model || "")
+      .filter(Boolean)
+      .sort();
+
+    const datalist = document.getElementById("modelOptions");
+    datalist.innerHTML = modelIds.map((id) => `<option value="${escapeAttribute(id)}"></option>`).join("");
+
+    if (modelIds.length > 0) {
+      if (!el.model.value.trim()) {
+        el.model.value = modelIds[0];
+      }
+      saveSettings();
+      updateWorkspaceIndicators();
+      setStatus(`已获取 ${modelIds.length} 个模型`, "");
+    } else {
+      setStatus("未获取到模型列表，请检查 URL 或 Key", "error");
+    }
+  } catch (err) {
+    setStatus(`获取模型失败：${err.message || "网络错误"}`, "error");
+  } finally {
+    el.fetchModelsBtn.disabled = false;
+    el.fetchModelsBtn.textContent = "获取模型";
+  }
 }
 
 async function handleSend(userText) {
@@ -1269,7 +1320,7 @@ async function handleSend(userText) {
     addMessage("user", userText);
     saveSettings();
     const externalContext = await buildExternalCardContext(userText);
-    const answer = await callGemini(externalContext, activeRequestController.signal);
+    const answer = await callAPI(externalContext, activeRequestController.signal);
     clearLoadingBubble();
     addMessage("assistant", answer);
     playCompletionSound();
@@ -1296,7 +1347,7 @@ async function retryFailedSend() {
 
   try {
     const externalContext = await buildExternalCardContext(lastFailedUserText);
-    const answer = await callGemini(externalContext, activeRequestController.signal);
+    const answer = await callAPI(externalContext, activeRequestController.signal);
     clearLoadingBubble();
     addMessage("assistant", answer);
     playCompletionSound();
@@ -1318,12 +1369,16 @@ function bindEvents() {
     saveSettings();
   });
 
-  [el.apiKey, el.model, el.maxTokens, el.cardName, el.systemPrompt].forEach((item) => {
+  [el.baseUrl, el.apiKey, el.model, el.maxTokens, el.cardName, el.systemPrompt].forEach((item) => {
     item.addEventListener("change", () => {
       saveSettings();
       updateWorkspaceIndicators();
     });
   });
+
+  el.baseUrl.addEventListener("input", saveSettings);
+
+  el.fetchModelsBtn.addEventListener("click", fetchModels);
 
   el.model.addEventListener("input", () => {
     saveSettings();
